@@ -9,8 +9,10 @@ enum GameMode {
 const SCREEN_WIDTH : i32 = 80;
 const SCREEN_HEIGHT : i32 = 50;
 const FRAME_DURATION : f32 = 50.0;
-const SPRITE_HEIGHT : i32 = 8;
-const SPRITE_WIDTH : i32 = 8;
+const PLAYER_SPRITE_HEIGHT : i32 = 8;
+const PLAYER_SPRITE_WIDTH : i32 = 8;
+const WALL_SPRITE_HEIGHT : i32 = 2;
+const WALL_SPRITE_WIDTH : i32 = 2;
 
 struct Player {
     x: i32,
@@ -33,10 +35,10 @@ impl Player {
         ctx.set_active_console(1);
         ctx.cls();
 
-        let render_y = self.y as i32 - (SPRITE_HEIGHT / 2);
+        let render_y = self.y as i32 - (PLAYER_SPRITE_HEIGHT / 2);
 
         ctx.add_sprite(
-            Rect::with_size(0, render_y, SPRITE_WIDTH, SPRITE_HEIGHT),
+            Rect::with_size(0, render_y, PLAYER_SPRITE_WIDTH, PLAYER_SPRITE_HEIGHT),
             10,
             RGBA::from_f32(1.0, 1.0, 1.0, 1.0),
             self.flap_cycle as usize,
@@ -94,33 +96,58 @@ impl Obstacle {
     fn render(&mut self, ctx: &mut BTerm, player_x: i32) {
         let screen_x = self.x - player_x;
         let half_size = self.size / 2;
+        let upper_bound = self.gap_y - half_size;
+        let lower_bound = self.gap_y + half_size;
 
-        for y in 0..self.gap_y - half_size {
-            ctx.set(
-                screen_x,
-                y,
-                RED,
-                BLACK,
-                to_cp437('|')
-            );
+        ctx.set_active_console(2);
+        ctx.cls();
+
+        let upper_render_start_offset = upper_bound % WALL_SPRITE_HEIGHT;
+
+        let mut index = 0;
+        for y in -upper_render_start_offset..upper_bound {
+            if index % WALL_SPRITE_HEIGHT == 0 {
+                ctx.add_sprite(
+                    Rect::with_size(screen_x, y, WALL_SPRITE_WIDTH, WALL_SPRITE_HEIGHT),
+                    9,
+                    RGBA::from_f32(1.0, 1.0, 1.0, 1.0),
+                    0,
+                );
+            }
+            index += 1;
         }
 
-        for y in self.gap_y + half_size..SCREEN_HEIGHT {
-            ctx.set(
-                screen_x,
-                y,
-                RED,
-                BLACK,
-                to_cp437('|')
-            );
+        index = 0;
+        for y in lower_bound..SCREEN_HEIGHT {
+            if index % WALL_SPRITE_HEIGHT == 0 {
+                ctx.add_sprite(
+                    Rect::with_size(screen_x, y, WALL_SPRITE_WIDTH, WALL_SPRITE_HEIGHT),
+                    9,
+                    RGBA::from_f32(1.0, 1.0, 1.0, 1.0),
+                    0,
+                );
+            }
+            index += 1;
         }
     }
 
     fn hit_obstacle(&self, player: &Player) -> bool {
+        // give some lee-way for wings/blank space in the sprite etc
+        let hit_box_height = PLAYER_SPRITE_HEIGHT / 2;
+        let half_hit_box_height = hit_box_height / 2;
+        let render_y_top = (player.y as i32) - half_hit_box_height;
+
+        let hit_box = Rect::with_exact(
+            player.x,
+            render_y_top,
+            player.x + PLAYER_SPRITE_WIDTH,
+            render_y_top + PLAYER_SPRITE_HEIGHT
+        );
+
         let half_size = self.size / 2;
-        let does_x_match = player.x < self.x && player.x + SPRITE_WIDTH >= self.x;
-        let player_above_gap = (player.y as i32) < self.gap_y - half_size;
-        let player_below_gap = (player.y as i32) > self.gap_y + half_size;
+        let does_x_match = hit_box.x1 < self.x && hit_box.x2 >= self.x;
+        let player_above_gap = hit_box.y1 < self.gap_y - half_size;
+        let player_below_gap = hit_box.y2 > self.gap_y + half_size;
 
         does_x_match && (player_above_gap || player_below_gap)
     }
@@ -188,6 +215,8 @@ impl State {
         ctx.cls();
         ctx.set_active_console(1);
         ctx.cls();
+        ctx.set_active_console(2);
+        ctx.cls();
         ctx.set_active_console(0);
         ctx.print_centered(5, "Welcome to Flappy Dragon");
         ctx.print_centered(8, "(P) Play Game");
@@ -205,6 +234,8 @@ impl State {
     fn dead(&mut self, ctx: &mut BTerm) {
         ctx.cls();
         ctx.set_active_console(1);
+        ctx.cls();
+        ctx.set_active_console(2);
         ctx.cls();
         ctx.set_active_console(0);
         ctx.print_centered(5, "You are dead!");
@@ -233,9 +264,11 @@ impl GameState for State {
 }
 
 embedded_resource!(DRAGON, "../resources/dragon-frames-sprite.png");
+embedded_resource!(WALL, "../resources/darkbrown.png");
 
 fn main() -> BError {
     link_resource!(DRAGON, "resources/dragon-frames-sprite.png");
+    link_resource!(WALL, "resources/darkbrown.png");
 
     let context = BTermBuilder::simple80x50()
         .with_sprite_console(80, 50, 0)
@@ -246,7 +279,12 @@ fn main() -> BError {
                 .add_sprite(Rect::with_size(0, 0, 235, 170))
                 .add_sprite(Rect::with_size(235, 0, 235, 170))
                 .add_sprite(Rect::with_size(470, 0, 235, 170))
-                .add_sprite(Rect::with_size(705, 0, 235, 170)),
+                .add_sprite(Rect::with_size(705, 0, 235, 170))
+        )
+        .with_sprite_console(80, 50, 1)
+        .with_sprite_sheet(
+            SpriteSheet::new("resources/darkbrown.png")
+                .add_sprite(Rect::with_size(0, 0, 128, 128))
         )
         .build()?;
 
